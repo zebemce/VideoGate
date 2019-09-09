@@ -1,0 +1,12 @@
+/VideoGate/obj
+/VideoGate/bin
+/VideoGate.Infrastructure/obj
+/VideoGate.Infrastructure/bin
+/VideoGate.Tests/bin
+/VideoGate.Tests/obj
+/RtspModules/RTSP/bin
+/RtspModules/RTSP/obj
+/RtspModules/RTSPClient/bin
+/RtspModules/RTSPClient/obj
+/RtspModules/RTSPServer/bin
+/RtspModules/RTSPServer/obj

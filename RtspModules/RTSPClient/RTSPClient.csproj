@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netcoreapp2.1</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NLog" Version="4.5.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RTSP\RTSP.csproj" />
+    <ProjectReference Include="..\..\VideoGate.Infrastructure\VideoGate.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

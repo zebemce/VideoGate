@@ -1,0 +1,9 @@
+[
+    {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "caption": "test01",
+        "url": "rtsp://wowzaec2demo.streamlock.net/vod/mp4:BigBuckBunny_115k.mov",
+        "enabled": true,
+        "useTCP": true
+    }
+]

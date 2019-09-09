@@ -1,0 +1,73 @@
+{
+    // Use IntelliSense to find out which attributes exist for C# debugging
+    // Use hover for the description of the existing attributes
+    // For further information visit https://github.com/OmniSharp/omnisharp-vscode/blob/master/debugger-launchjson.md
+    "version": "0.2.1",
+    "configurations": [
+     {
+         "name": "Debug xunit tests",
+         "type": "coreclr",
+         "request": "launch",
+         "preLaunchTask": "build",
+         "program": "C:\\Program Files\\dotnet\\dotnet",
+         "args": [
+         "exec",
+         "--runtimeconfig",
+         "${workspaceRoot}/AppNameHere/bin/Debug/netcoreapp1.0/AppNameHere.runtimeconfig.json",
+         "--depsfile",
+         "${workspaceRoot}/AppNameHere/bin/Debug/netcoreapp1.0/AppNameHere.deps.json",
+         "--additionalprobingpath",
+         "/Users/jdoe/.nuget/packages",
+         "/Users/jdoe/.nuget/packages/dotnet-test-xunit/1.0.0-rc2-build10015/lib/netcoreapp1.0/dotnet-test-xunit.dll",
+         "${workspaceFolder}/VideoGate/bin/Debug/netcoreapp2.1/VideoGate.dll",
+         "-namespace",
+         "Tests"
+         ],
+         "cwd": "${workspaceRoot}",
+         "stopAtEntry": false
+     },
+         {
+             "name": ".NET Core Launch (web)",
+             "type": "coreclr",
+             "request": "launch",
+             "preLaunchTask": "build",
+             // If you have changed target frameworks, make sure to update the program path.
+             "program": "${workspaceFolder}/VideoGate/bin/Debug/netcoreapp2.1/VideoGate.dll",
+             "args": [],
+             "cwd": "${workspaceFolder}/VideoGate",
+             "stopAtEntry": false,
+             "internalConsoleOptions": "openOnSessionStart",
+             "console": "externalTerminal",
+             "launchBrowser": {
+                 "enabled": true,
+                 "args": "${auto-detect-url}",
+                 "windows": {
+                     "command": "cmd.exe",
+                     "args": "/C start http://localhost:5777"
+                 },
+                 "osx": {
+                     "command": "open"
+                 },
+                 "linux": {
+                     "command": "xdg-open"
+                 }
+             },
+             "env": {
+                 "ASPNETCORE_ENVIRONMENT": "Development"
+             },
+             "sourceFileMap": {
+                 "/Views": "${workspaceFolder}/Views"
+             },             
+            "logging": {
+                "engineLogging": false,
+                "moduleLoad": false
+            }
+         },
+         {
+             "name": ".NET Core Attach",
+             "type": "coreclr",
+             "request": "attach",
+             "processId": "${command:pickProcess}"
+         }
+     ,]
+ }
