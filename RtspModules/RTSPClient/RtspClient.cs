@@ -288,12 +288,20 @@ namespace RTSPClient
         CancellationTokenSource _waitTeardownResponseCancellationTokenSource = new CancellationTokenSource();
         public void Stop(RtspClientStopReason reason)
         {
+            if (reason == RtspClientStopReason.CONNECTION_FAILED)
+            {
+                //no connection was established: nothing to do
+                var handler = OnStopped;
+                if (handler != null)
+                {
+                    handler(this,reason);
+                }
+            }
+            
             if (_rtspClient == null)
                 return;
             lock(_rtspClient)
-            {
-                
-                            
+            {                                            
                 if (_rtspClient != null && reason == RtspClientStopReason.COMMAND) 
                 {
                     TrySendTeardown();

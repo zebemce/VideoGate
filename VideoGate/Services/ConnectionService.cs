@@ -169,10 +169,9 @@ namespace VideoGate.Services
             );
         }
 
-        private byte[] GetSdpByRtspClient(object state)
+        private byte[] GetSdpByRtspClient(IRtspClient rtspClient, Guid connectionId)
         {                
-                IRtspClient rtspClient = ((Tuple<IRtspClient,Guid>)state).Item1;
-                Guid connectionId = ((Tuple<IRtspClient,Guid>)state).Item2;
+
                 _logger.Trace($"Waiting RTSP client ready for video source {rtspClient.VideoSourceId} connection {connectionId}");
                 if (rtspClient.WaitReady())
                 {
@@ -190,12 +189,10 @@ namespace VideoGate.Services
             lock(_sychGetSdpTasks)
             {
                 IRtspClient rtspClient;
+                Guid currentConnectionId = connectionId;
                 if (_rtspClientsDictionary.TryGetValue(videoSource.Id, out rtspClient))
-                {
-                    Func<object, byte[]> func = new Func<object, byte[]>(GetSdpByRtspClient);
-                    
-                    return Task.Factory.StartNew<byte[]>(func, new Tuple<IRtspClient,Guid>(rtspClient,connectionId)); 
-                                                            
+                {                    
+                    return Task.Factory.StartNew<byte[]>(() => GetSdpByRtspClient(rtspClient, currentConnectionId));                                            
                 } 
 
                 return Task.FromResult<byte[]>(null);
