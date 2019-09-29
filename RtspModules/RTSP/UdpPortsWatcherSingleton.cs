@@ -1,7 +1,9 @@
 ﻿using NLog;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Text;
 
 namespace RTSP
@@ -36,13 +38,15 @@ namespace RTSP
                     portsDictionary.Add(address, new HashSet<int>());
                 }
 
-                if (false == portBusy)
+                if (false == portBusy && CheckAvailableUdpPort(dataPortNumber, controlPortNumber))
                 {
                     portsDictionary[address].Add(dataPortNumber);
                     _logger.Trace($"UdpClient for {address} ports {dataPortNumber}-{controlPortNumber} reserved");
+
+                    return true;
                 }
 
-                return !portBusy;
+                return false;
 
             }
         }
@@ -62,6 +66,42 @@ namespace RTSP
                 return portRemoved;
             }
 
+        }
+
+        public bool CheckAvailableUdpPort(int dataPort, int controlPort)
+        {
+            _logger.Trace($"UdpClient CheckAvailableUdpPort for ports {dataPort}-{controlPort} started");
+            
+            IPEndPoint[] endPoints;
+            List<int> portArray = new List<int>();
+
+            IPGlobalProperties properties = IPGlobalProperties.GetIPGlobalProperties();
+
+            //getting active connections
+            TcpConnectionInformation[] connections = properties.GetActiveTcpConnections();
+            portArray.AddRange(from n in connections
+                               select n.LocalEndPoint.Port);
+
+            //getting active tcp listners - WCF service listening in tcp
+            endPoints = properties.GetActiveTcpListeners();
+            portArray.AddRange(from n in endPoints
+                               select n.Port);
+
+            //getting active udp listeners
+            endPoints = properties.GetActiveUdpListeners();
+            portArray.AddRange(from n in endPoints
+                               select n.Port);
+
+            portArray.Sort();
+
+          /*   for (int i = startingPort; i < UInt16.MaxValue; i++)
+                if (!portArray.Contains(i))
+                    return i;*/
+
+
+            var result = !portArray.Contains(dataPort) && !portArray.Contains(controlPort);
+            _logger.Trace($"UdpClient CheckAvailableUdpPort for ports {dataPort}-{controlPort} finished : {result}");
+            return result;
         }
     }
 }

@@ -187,9 +187,6 @@ namespace RTSPClient
             _rtspClient.SocketExceptionRaised += RTSP_SocketException_Raised;
             _rtspClient.Disconnected += RTSP_Disconnected;
 
-            _rtspClient.Start(); // start listening for messages from the server (messages fire the MessageReceived event)
-
-
             // Check the RTP Transport
             // If the RTP transport is TCP then we interleave the RTP packets in the RTSP stream
             // If the RTP transport is UDP, we initialise two UDP sockets (one for video, one for RTCP status messages)
@@ -218,6 +215,7 @@ namespace RTSPClient
                 // Nothing to do. Will open Multicast UDP sockets after the SETUP command
             }
 
+            _rtspClient.Start(); // start listening for messages from the server (messages fire the MessageReceived event)
 
             // Send OPTIONS
             // In the Received Message handler we will send DESCRIBE, SETUP and PLAY
