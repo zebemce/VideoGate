@@ -10,7 +10,7 @@ namespace RTSP
 {
     public class UdpPortsWatcherSingleton
     {
-        private readonly Dictionary<IPAddress, HashSet<int>> portsDictionary = new Dictionary<IPAddress, HashSet<int>>();
+        private readonly HashSet<int> portsHashSet = new  HashSet<int>();
         private readonly object portsSetLock = new object();
         private readonly ILogger _logger = LogManager.GetLogger("UdpPortsWatcherSingleton");
 
@@ -22,26 +22,14 @@ namespace RTSP
         public static UdpPortsWatcherSingleton Instance { get; private set; }
 
 
-        public bool TryReservePort(IPAddress address, int dataPortNumber, int controlPortNumber)
+        public bool TryReservePort(int startPort, int endPort, out int dataPortNumber,out int controlPortNumber)
         {
-            bool portBusy = false;
             lock (portsSetLock)
             {
-                HashSet<int> portsSet;
-                if (portsDictionary.TryGetValue(address, out portsSet))
+                if (GetAvailableUdpPorts(startPort, endPort, out dataPortNumber, out controlPortNumber))
                 {
-                    portBusy = portsSet.Contains(dataPortNumber);
-
-                }
-                else
-                {
-                    portsDictionary.Add(address, new HashSet<int>());
-                }
-
-                if (false == portBusy && CheckAvailableUdpPort(dataPortNumber, controlPortNumber))
-                {
-                    portsDictionary[address].Add(dataPortNumber);
-                    _logger.Trace($"UdpClient for {address} ports {dataPortNumber}-{controlPortNumber} reserved");
+                    portsHashSet.Add(dataPortNumber);
+                    _logger.Trace($"UdpClient ports {dataPortNumber}-{controlPortNumber} reserved");
 
                     return true;
                 }
@@ -51,26 +39,21 @@ namespace RTSP
             }
         }
 
-        public bool TryReleasePort(IPAddress address, int dataPortNumber, int controlPortNumber)
+        public bool TryReleasePort(int dataPortNumber, int controlPortNumber)
         {
-
-            if (address == null)
-            {
-                return false;
-            }
 
             lock (portsSetLock)
             {
-                bool portRemoved = portsDictionary[address]?.Remove(dataPortNumber) ?? false;
-                _logger.Trace($"UdpClient for {address} ports {dataPortNumber}-{controlPortNumber} released");
+                bool portRemoved = portsHashSet.Remove(dataPortNumber);
+                _logger.Trace($"UdpClient ports {dataPortNumber}-{controlPortNumber} released");
                 return portRemoved;
             }
 
         }
 
-        public bool CheckAvailableUdpPort(int dataPort, int controlPort)
+        public bool GetAvailableUdpPorts(int startPort, int endPort, out int dataPortNumber,out int controlPortNumber)
         {
-            _logger.Trace($"UdpClient CheckAvailableUdpPort for ports {dataPort}-{controlPort} started");
+            _logger.Trace($"UdpClient GetAvailableUdpPorts for ports {startPort}-{endPort}");
             
             IPEndPoint[] endPoints;
             List<int> portArray = new List<int>();
@@ -93,15 +76,23 @@ namespace RTSP
                                select n.Port);
 
             portArray.Sort();
+            
+            dataPortNumber = -1;
+            controlPortNumber = -1;
+            for (int i = startPort; i < endPort; i++)
+            {
+                if (!portArray.Contains(i) && !portArray.Contains(i+1) && !portsHashSet.Contains(i))
+                {
+                    dataPortNumber = i;
+                    controlPortNumber = i+1;
+                    _logger.Trace($"UdpClient GetAvailableUdpPorts for ports {startPort}-{endPort} finished : {dataPortNumber}-{controlPortNumber} portArray.Count={portArray.Count}, portsHashSet.Count={portsHashSet.Count}");
+                    return true;
+                }
+            }
 
-          /*   for (int i = startingPort; i < UInt16.MaxValue; i++)
-                if (!portArray.Contains(i))
-                    return i;*/
+            _logger.Trace($"UdpClient GetAvailableUdpPorts for ports {startPort}-{endPort} finished : {dataPortNumber}-{controlPortNumber} portArray.Count={portArray.Count}, portsHashSet.Count={portsHashSet.Count}");
+            return false;
 
-
-            var result = !portArray.Contains(dataPort) && !portArray.Contains(controlPort);
-            _logger.Trace($"UdpClient CheckAvailableUdpPort for ports {dataPort}-{controlPort} finished : {result}");
-            return result;
         }
     }
 }

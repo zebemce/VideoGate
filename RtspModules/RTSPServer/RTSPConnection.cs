@@ -269,17 +269,17 @@ namespace RTSPServer
 
         public void CloseConnection(string reason)
         {
-
+            _logger.Info($"Connection {Id} closing. Reason: {reason}, _audioUdpPair.DataPort={_audioUdpPair?._dataPort}, _videoUdpPair.DataPort={_videoUdpPair?._dataPort}");
             try
             {
                 Play = false; // stop sending data
                 if (_audioUdpPair != null) {
-                    _audioUdpPair.Stop();
+                    ReleaseUDPSocket(_audioUdpPair);
                     _audioUdpPair = null;
                 }
 
                 if (_videoUdpPair != null) {
-                    _videoUdpPair.Stop();
+                    ReleaseUDPSocket(_videoUdpPair);
                     _videoUdpPair = null;
                 }
 
@@ -377,6 +377,8 @@ namespace RTSPServer
 
         private RtspTransport RTSP_ConstructReplyTransport(RtspTransport transport, out UDPSocket udp_pair)
         {
+            udp_pair = null;
+            
             RtspTransport transport_reply = new RtspTransport();
             transport_reply.SSrc = GLOBAL_SSRC.ToString("X8"); // Convert to Hex, padded to 8 characters
 
@@ -387,8 +389,7 @@ namespace RTSPServer
                 transport_reply.Interleaved = new Rtsp.Messages.PortCouple(transport.Interleaved.First, transport.Interleaved.Second);
             }
 
-            udp_pair = null;
-
+            
             if (transport.LowerTransport == Rtsp.Messages.RtspTransport.LowerTransportType.UDP
                 && transport.IsMulticast == false)
             {
@@ -397,19 +398,24 @@ namespace RTSPServer
                 {
                     // RTP over UDP mode
                     // Create a pair of UDP sockets - One is for the Video, one is for the RTCP
-                    _logger.Trace($"{Id} Start creating UDPSocket");
-                    udp_pair = new Rtsp.UDPSocket(_ipAddress, 50000, 51000); // give a range of 500 pairs (1000 addresses) to try incase some address are in use
-                    udp_pair.DataReceived += (object local_sender, RtspChunkEventArgs local_e) => {
-                        // RTP data received
-                        //_logger.Debug($"{listener.ConnectionId} RTP data received " + local_sender.ToString() + " " + local_e.ToString());
-                    };
-                    udp_pair.ControlReceived += (object local_sender, RtspChunkEventArgs local_e) => {
-                        _timeSinceLastRtcpKeepAlive = DateTime.UtcNow;
-                        // RTCP data received
-                        //_logger.Debug($"{listener.ConnectionId} RTCP data received " + local_sender.ToString() + " " + local_e.ToString());
-                    };
-                    udp_pair.Start(); // start listening for data on the UDP ports
-                    _logger.Trace($"{Id} End creating UDPSocket");
+                    try
+                    {
+                        _logger.Trace($"{Id} Start creating UDPSocket");
+                        udp_pair = new Rtsp.UDPSocket(_ipAddress, 50000, 51000); // give a range of 500 pairs (1000 addresses) to try incase some address are in use
+                        udp_pair.DataReceived += UdpPair_DataReceived;
+                        udp_pair.ControlReceived += UdpPair_ControlReceived;
+                        udp_pair.Start(); // start listening for data on the UDP ports
+                        _logger.Trace($"{Id} End creating UDPSocket");
+                    }
+                    catch
+                    {
+                        if (udp_pair != null)
+                        {
+                            ReleaseUDPSocket(udp_pair);
+                            throw;
+                        }
+                    }
+                    
 
                     // Pass the Port of the two sockets back in the reply
                     transport_reply.LowerTransport = Rtsp.Messages.RtspTransport.LowerTransportType.UDP;
@@ -439,6 +445,17 @@ namespace RTSPServer
             return transport_reply;
         }
 
+        private void UdpPair_DataReceived(object local_sender, RtspChunkEventArgs local_e){
+            // RTP data received
+            //_logger.Debug($"{listener.ConnectionId} RTP data received " + local_sender.ToString() + " " + local_e.ToString());
+        }
+
+        private void UdpPair_ControlReceived(object local_sender, RtspChunkEventArgs local_e){
+            _timeSinceLastRtcpKeepAlive = DateTime.UtcNow;
+            // RTCP data received
+            //_logger.Debug($"{listener.ConnectionId} RTCP data received " + local_sender.ToString() + " " + local_e.ToString());
+        }
+
         private void RTSP_ProcessSetupRequest(RtspRequestSetup message, RtspListener listener)
         {
             // 
@@ -456,22 +473,20 @@ namespace RTSPServer
             // Construct the Transport: reply from the Server to the client
             Rtsp.UDPSocket udp_pair;
             RtspTransport transport_reply = RTSP_ConstructReplyTransport(transport, out udp_pair);
-            
+            bool mediaTransportSet = false;
+
             if (transport_reply != null)
             {
 
                 // Update the session with transport information
                 String copy_of_session_id = "";
 
-
                 // ToDo - Check the Track ID to determine if this is a SETUP for the Video Stream
                 // or a SETUP for an Audio Stream.
                 // In the SDP the H264 video track is TrackID 0
 
-
-                // found the connection
                 // Add the transports to the connection
-
+                
                 if (contentBase != null)
                 {
                     string controlTrack = setupMessage.RtspUri.AbsoluteUri.Replace(contentBase, string.Empty);
@@ -487,7 +502,12 @@ namespace RTSPServer
                             _videoTransportReply = transport_reply;
 
                             // If we are sending in UDP mode, add the UDP Socket pair and the Client Hostname
+                            if (_videoUdpPair != null)
+                            {
+                                ReleaseUDPSocket(_videoUdpPair);
+                            }
                             _videoUdpPair = udp_pair;
+                            mediaTransportSet = true;
 
                             if (setupMessage.Session == null)
                             {
@@ -512,7 +532,12 @@ namespace RTSPServer
                             _audioTransportReply = transport_reply;
 
                             // If we are sending in UDP mode, add the UDP Socket pair and the Client Hostname
+                            if (_audioUdpPair != null)
+                            {
+                                ReleaseUDPSocket(_audioUdpPair);
+                            }
                             _audioUdpPair = udp_pair;
+                            mediaTransportSet = true;
 
 
                             if (setupMessage.Session == null)
@@ -533,39 +558,47 @@ namespace RTSPServer
 
                 }
 
-                _videoClientTransport = transport;
-                _videoTransportReply = transport_reply;
-
-                // If we are sending in UDP mode, add the UDP Socket pair and the Client Hostname
-                _videoUdpPair = udp_pair;
-
-
-                if (setupMessage.Session == null)
+                if (false == mediaTransportSet)
                 {
-                    _videoSessionId = _sessionHandle.ToString();
-                    _sessionHandle++;
+                    Rtsp.Messages.RtspResponse setup_response = setupMessage.CreateResponse(_logger);
+                    // unsuported mediatime
+                    setup_response.ReturnCode = 415;
+                    listener.SendMessage(setup_response);
                 }
-                else
+                else 
                 {
-                    _videoSessionId = setupMessage.Session;
-                }
-
-                // Copy the Session ID
-                copy_of_session_id = _videoSessionId;
-
-                Rtsp.Messages.RtspResponse setup_response = setupMessage.CreateResponse(_logger);
-                setup_response.Headers[Rtsp.Messages.RtspHeaderNames.Transport] = transport_reply.ToString();
-                setup_response.Session = copy_of_session_id;
-                setup_response.Timeout = timeout_in_seconds;
-                listener.SendMessage(setup_response);
+                    Rtsp.Messages.RtspResponse setup_response = setupMessage.CreateResponse(_logger);
+                    setup_response.Headers[Rtsp.Messages.RtspHeaderNames.Transport] = transport_reply.ToString();
+                    setup_response.Session = copy_of_session_id;
+                    setup_response.Timeout = timeout_in_seconds;
+                    listener.SendMessage(setup_response);
+                }                
+                    
+                
             }
             else
-            {
+            {                                
                 Rtsp.Messages.RtspResponse setup_response = setupMessage.CreateResponse(_logger);
                 // unsuported transport
                 setup_response.ReturnCode = 461;
                 listener.SendMessage(setup_response);
             }
+
+            if (false == mediaTransportSet)
+            {
+                if (udp_pair != null)
+                {
+                    ReleaseUDPSocket(udp_pair);
+                    udp_pair = null;
+                }
+            }
+        }
+
+        private void ReleaseUDPSocket(UDPSocket udpSocket)
+        {
+            udpSocket.DataReceived -= UdpPair_DataReceived;
+            udpSocket.ControlReceived -= UdpPair_ControlReceived;
+            udpSocket.Stop();
         }
 
         private void RTSP_ProcessPlayRequest(RtspRequestPlay message, RtspListener listener)
@@ -624,8 +657,8 @@ namespace RTSPServer
                 // If this is UDP, close the transport
                 // For TCP there is no transport to close (as RTP packets were interleaved into the RTSP connection)
 
-                Rtsp.Messages.RtspResponse getparameter_response = message.CreateResponse(_logger);
-                listener.SendMessage(getparameter_response);
+                Rtsp.Messages.RtspResponse teardown_response = message.CreateResponse(_logger);
+                listener.SendMessage(teardown_response);
 
                 CloseConnection("teardown");
             }

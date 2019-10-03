@@ -9,7 +9,8 @@ namespace VideoGate.Infrastructure.Interfaces
         CONNECTION_LOST = 2,
         AUTHORIZATION_FAILED = 3,
         SESSION_FAILED = 4,
-        SESSION_CLOSED = 5
+        SESSION_CLOSED = 5,
+        TRANSPORT_FAILED = 6
     }
     
     

@@ -9,7 +9,7 @@ using RTSP;
 
 namespace Rtsp
 {
-    public class UDPSocket
+    public class UDPSocket : IDisposable
     {
               
         private UdpClient _dataSocket = null;
@@ -40,84 +40,63 @@ namespace Rtsp
             _isMulticast = false;
 
             // open a pair of UDP sockets - one for data (video or audio) and one for the status channel (RTCP messages)
-            _dataPort = startPort;
-            _controlPort = startPort + 1;
+            // Video/Audio port must be odd and command even (next one)
+            bool portReserved = UdpPortsWatcherSingleton.Instance.TryReservePort(startPort, endPort, out _dataPort,out _controlPort);;
 
-            bool ok = false;
-            while (ok == false && (_controlPort < endPort))
+            if (false == portReserved)
             {
-                // Video/Audio port must be odd and command even (next one)
-                bool portReserved = UdpPortsWatcherSingleton.Instance.TryReservePort(address, _dataPort, _controlPort);;
+                throw new Exception("UdpClient failed to reserve UDP port");
+            }   
 
-                if (false == portReserved)
-                {
-                    _dataPort += 2;
-                    _controlPort += 2;
-                    continue;
-                }   
-                               
+            try
+            {
+                _logger.Trace($"Start UdpClient creation for {address} {_dataPort}-{_controlPort}");
+                _dataSocket = address == IPAddress.Any ? new UdpClient(_dataPort) : new UdpClient(new IPEndPoint(address,_dataPort));
+                _logger.Trace($"UdpClient for {address} {_dataPort} created {_dataSocket.Client.LocalEndPoint}");
+                _controlSocket = address == IPAddress.Any ? new UdpClient(_controlPort) : new UdpClient(new IPEndPoint(address,_controlPort));
+                _logger.Trace($"UdpClient for {address} {_controlPort} created {_controlSocket.Client.LocalEndPoint}");
+                _logger.Trace($"End UdpClient creation for {address} {_dataPort}-{_controlPort}");
+
+
+                _dataSocket.Client.ReceiveBufferSize = 100 * 1024;
+                _dataSocket.Client.SendBufferSize = 65535; // default is 8192. Make it as large as possible for large RTP packets which are not fragmented
+
+                _controlSocket.Client.DontFragment = false;   
+            }
+            catch(Exception ex)
+            {
+                _logger.Trace($"UdpClient exception for {_initialAddress} {_dataPort}-{_controlPort} {ex}");
                 try
                 {
-                    
-                    _logger.Trace($"Start UdpClient creation for {address} {_dataPort}-{_controlPort}");
-                    _dataSocket = address == IPAddress.Any ? new UdpClient(_dataPort) : new UdpClient(new IPEndPoint(address,_dataPort));
-                    _logger.Trace($"UdpClient for {address} {_dataPort} created {_dataSocket.Client.LocalEndPoint}");
-                    _controlSocket = address == IPAddress.Any ? new UdpClient(_controlPort) : new UdpClient(new IPEndPoint(address,_controlPort));
-                    _logger.Trace($"UdpClient for {address} {_controlPort} created {_controlSocket.Client.LocalEndPoint}");
-                    _logger.Trace($"End UdpClient creation for {address} {_dataPort}-{_controlPort}");
-                    
-
-                    ok = true;
+                    UdpPortsWatcherSingleton.Instance.TryReleasePort(_dataPort, _controlPort);
+                    DisposeSockets(address);                    
                 }
-                catch (SocketException ex)
+                catch(Exception e)
                 {
-                    
-                    // Fail to allocate port, try again
-                   
-                    try
-                    {
-                        if (_dataSocket != null)
-                        {
-                            string remoteAddress = _dataSocket.Client != null ? _dataSocket.Client.LocalEndPoint.ToString() : "null";
-                            _dataSocket.Close();
-                            _logger.Trace($"UdpClient for {address} {_dataPort} disposed {_dataSocket.Client?.LocalEndPoint}");
-                            _dataSocket = null;
-                        }
-                            
-                        if (_controlSocket != null)
-                        {
-                            string remoteAddress = _controlSocket.Client != null ? _controlSocket.Client.LocalEndPoint.ToString() : "null";
-                            _controlSocket.Close();
-                            _logger.Trace($"UdpClient for {address} {_controlPort} disposed {_controlSocket.Client?.LocalEndPoint}");
-                            _dataSocket = null;
-                        }
-                    }
-                    catch(Exception e)
-                    {
-                        _logger.Trace($"UdpClient exception for {_initialAddress} {_dataPort}-{_controlPort} disposal {e}");
-                        throw;
-                    }
-                    
-                        
-                    _logger.Trace($"End (failed) UdpClient creation for {address} {_dataPort}-{_controlPort} {ex}");
-                    UdpPortsWatcherSingleton.Instance.TryReleasePort(address, _dataPort, _controlPort);
-                  
-                    // try next data or control port
-                    _dataPort += 2;
-                    _controlPort += 2;
-                }
-
-                if (ok)
-                {
-                    _dataSocket.Client.ReceiveBufferSize = 100 * 1024;
-                    _dataSocket.Client.SendBufferSize = 65535; // default is 8192. Make it as large as possible for large RTP packets which are not fragmented
-
-                    _controlSocket.Client.DontFragment = false;
-
-                }
+                    _logger.Warn($"UdpClient exception for {_initialAddress} {_dataPort}-{_controlPort} disposal {e}");
+                   throw;
+                }      
             }
         }
 
+        void DisposeSockets(IPAddress address)
+        {
+            if (_dataSocket != null)
+            {
+                string remoteAddress = _dataSocket.Client != null ? _dataSocket.Client.LocalEndPoint.ToString() : "null";
+                _dataSocket.Close();
+                _logger.Trace($"UdpClient for {address} {_dataPort} disposed {_dataSocket.Client?.LocalEndPoint}");
+                _dataSocket = null;
+            }
+                
+            if (_controlSocket != null)
+            {
+                string remoteAddress = _controlSocket.Client != null ? _controlSocket.Client.LocalEndPoint.ToString() : "null";
+                _controlSocket.Close();
+                _logger.Trace($"UdpClient for {address} {_controlPort} disposed {_controlSocket.Client?.LocalEndPoint}");
+                _controlSocket = null;
+            }
+        }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="UDPSocket"/> class.
@@ -181,6 +160,7 @@ namespace Rtsp
         /// </summary>
         public void Start()
         {
+            _logger.Trace($"UdpSocket.Start() dataPort={_dataPort}");
             if (_dataSocket == null || _controlSocket == null)
             {
                 throw new InvalidOperationException("UDP Forwader host was not initialized, can't continue");
@@ -200,6 +180,8 @@ namespace Rtsp
         /// </summary>
         public void Stop()
         {
+            _logger.Trace($"UdpSocket.Stop() dataPort={_dataPort}");
+            
             if (_stopped) return;
             _stopped = true;
             try
@@ -240,7 +222,7 @@ namespace Rtsp
             }
             finally
             {
-                UdpPortsWatcherSingleton.Instance.TryReleasePort(_initialAddress, _dataPort, _controlPort);
+                UdpPortsWatcherSingleton.Instance.TryReleasePort(_dataPort, _controlPort);
             }
         }
 
@@ -355,5 +337,9 @@ namespace Rtsp
             _controlSocket.Send(data, data.Length, hostname, port);
         }
 
+        public void Dispose()
+        {
+            Stop();
+        }
     }
 }

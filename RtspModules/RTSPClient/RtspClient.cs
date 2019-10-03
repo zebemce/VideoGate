@@ -61,7 +61,7 @@ namespace RTSPClient
         uint   _ssrc = 12345;
         Uri _videoUri = null;            // URI used for the Video Track
         int _videoPayload = -1;          // Payload Type for the Video. (often 96 which is the first dynamic payload value. Bosch use 35)
-        int _videoВataСhannel = -1;     // RTP Channel Number used for the video RTP stream or the UDP port number
+        int _videoDataСhannel = -1;     // RTP Channel Number used for the video RTP stream or the UDP port number
         int _videoRtcpChannel = -1;     // RTP Channel Number used for the video RTCP status report messages OR the UDP port number
         bool _h264SpsPpsFired = false; // True if the SDP included a sprop-Parameter-Set for H264 video
         bool _h265VpsSpsPpsFired = false; // True if the SDP included a sprop-vps, sprop-sps and sprop_pps for H265 video
@@ -111,7 +111,7 @@ namespace RTSPClient
 
         public Guid VideoSourceId => _videoSource.Id;
 
-        public int VideoRtpChannel => _videoВataСhannel;
+        public int VideoRtpChannel => _videoDataСhannel;
 
         public int VideoRtcpChannel => _videoRtcpChannel;
 
@@ -194,17 +194,29 @@ namespace RTSPClient
             this._rtpTransport = rtp_transport;
             if (rtp_transport == RTP_TRANSPORT.UDP)
             {
-                 _logger.Trace($"{VideoSourceId} Start setting UDP ports");
-                _videoUdpPair = new Rtsp.UDPSocket(_ipAddress, 50000, 51000); // give a range of 500 pairs (1000 addresses) to try incase some address are in use
-                _videoUdpPair.DataReceived += Rtp_DataReceived;
-                _videoUdpPair.ControlReceived += Rtcp_DataReceived;
-                _videoUdpPair.Start(); // start listening for data on the UDP ports
-                _audioUdpPair = new Rtsp.UDPSocket(_ipAddress,50000, 51000); // give a range of 500 pairs (1000 addresses) to try incase some address are in use
-                _audioUdpPair.DataReceived += Rtp_DataReceived;
-                _audioUdpPair.ControlReceived += Rtcp_DataReceived;
-                _audioUdpPair.Start(); // start listening for data on the UDP ports
-                _logger.Trace($"{VideoSourceId} End setting UDP ports: video {_videoUdpPair._dataPort}-{_videoUdpPair._controlPort}"+
-                $" audio {_audioUdpPair._dataPort}-{_audioUdpPair._controlPort}");
+                 try
+                 {
+                    _logger.Trace($"{VideoSourceId} Start setting UDP ports");
+                    _videoUdpPair = new Rtsp.UDPSocket(_ipAddress, 50000, 51000); // give a range of 500 pairs (1000 addresses) to try incase some address are in use
+                    _videoUdpPair.DataReceived += Rtp_DataReceived;
+                    _videoUdpPair.ControlReceived += Rtcp_DataReceived;
+                    _videoUdpPair.Start(); // start listening for data on the UDP ports
+                    _audioUdpPair = new Rtsp.UDPSocket(_ipAddress,50000, 51000); // give a range of 500 pairs (1000 addresses) to try incase some address are in use
+                    _audioUdpPair.DataReceived += Rtp_DataReceived;
+                    _audioUdpPair.ControlReceived += Rtcp_DataReceived;
+                    _audioUdpPair.Start(); // start listening for data on the UDP ports
+                    _logger.Trace($"{VideoSourceId} End setting UDP ports: video {_videoUdpPair._dataPort}-{_videoUdpPair._controlPort}"+
+                    $" audio {_audioUdpPair._dataPort}-{_audioUdpPair._controlPort}");
+
+                 }
+                 catch(Exception ex)
+                 {
+                    rtspSocketStatus = RTSP_STATUS.ConnectFailed;
+                    _logger.Warn($"{VideoSourceId} Error - connection failed {ex}");
+                    Stop(RtspClientStopReason.TRANSPORT_FAILED);
+                    return;
+                 }
+                 
             }
             if (rtp_transport == RTP_TRANSPORT.TCP)
             {
@@ -298,6 +310,7 @@ namespace RTSPClient
             
             if (_rtspClient == null)
                 return;
+
             lock(_rtspClient)
             {                                            
                 if (_rtspClient != null && reason == RtspClientStopReason.COMMAND) 
@@ -335,11 +348,15 @@ namespace RTSPClient
                     if (_videoUdpPair != null) 
                     {
                         _videoUdpPair.Stop();
+                        _videoUdpPair.DataReceived -= Rtp_DataReceived;
+                        _videoUdpPair.ControlReceived -= Rtcp_DataReceived;   
                         _videoUdpPair = null;
                     }
                     if (_audioUdpPair != null) 
                     {
                         _audioUdpPair.Stop();
+                        _audioUdpPair.DataReceived -= Rtp_DataReceived;
+                        _audioUdpPair.ControlReceived -= Rtcp_DataReceived;                        
                         _audioUdpPair = null;
                     }
 
@@ -700,7 +717,7 @@ namespace RTSPClient
             // eg the Video Channel, the Video Control Channel (RTCP)
             // the Audio Channel or the Audio Control Channel (RTCP)
 
-          if (data_received.Channel == _videoВataСhannel || data_received.Channel == _audioDataChannel)
+          if (data_received.Channel == _videoDataСhannel || data_received.Channel == _audioDataChannel)
             {
                 var handler = Received_Rtp;
                 if (handler != null)
@@ -720,7 +737,7 @@ namespace RTSPClient
                 Rtp_ParseMessageData(e.Message.Data,out rtp_payload_type, out rtp_payload_start, out rtp_marker, false);
 
                 // Check the payload type in the RTP packet matches the Payload Type value from the SDP
-                if (data_received.Channel == _videoВataСhannel && rtp_payload_type != _videoPayload)
+                if (data_received.Channel == _videoDataСhannel && rtp_payload_type != _videoPayload)
                 {
                     _logger.Debug("Ignoring this Video RTP payload");
                     return; // ignore this data
@@ -732,14 +749,14 @@ namespace RTSPClient
                     _logger.Debug("Ignoring this Audio RTP payload");
                     return; // ignore this data
                 }
-                else if (data_received.Channel == _videoВataСhannel
+                else if (data_received.Channel == _videoDataСhannel
                          && rtp_payload_type == _videoPayload
                          && _videoCodec.Equals("H264")) 
                 {
                     byte[] rtp_payload = Rtp_ExtractPayload(e.Message.Data, rtp_payload_start); 
                     Rtp_ProcessH264Payload(rtp_payload,rtp_marker);
                 }
-                else if (data_received.Channel == _videoВataСhannel
+                else if (data_received.Channel == _videoDataСhannel
                          && rtp_payload_type == _videoPayload
                          && _videoCodec.Equals("H265"))
                 {                    
@@ -764,7 +781,7 @@ namespace RTSPClient
                     byte[] rtp_payload = Rtp_ExtractPayload(e.Message.Data, rtp_payload_start); 
                     Rtp_ProcessAACPayload(rtp_payload,rtp_marker);  
                 }
-                else if (data_received.Channel == _videoВataСhannel && rtp_payload_type == 26) {
+                else if (data_received.Channel == _videoDataСhannel && rtp_payload_type == 26) {
                     _logger.Warn("No parser has been written for JPEG RTP packets. Please help write one");
                     return; // ignore this data
                 }
@@ -897,7 +914,7 @@ namespace RTSPClient
                 // Server interleaves the RTP packets over the RTSP connection
                 // Example for TCP mode (RTP over RTSP)   Transport: RTP/AVP/TCP;interleaved=0-1
                 if (video) {
-                    _videoВataСhannel = next_free_rtp_channel;
+                    _videoDataСhannel = next_free_rtp_channel;
                     _videoRtcpChannel = next_free_rtcp_channel;
                 }
                 if (audio) {
@@ -920,7 +937,7 @@ namespace RTSPClient
                 // Server sends the RTP packets to a Pair of UDP Ports (one for data, one for rtcp control messages)
                 // Example for UDP mode                   Transport: RTP/AVP;unicast;client_port=8000-8001
                 if (video) {
-                    _videoВataСhannel = _videoUdpPair._dataPort;     // Used in DataReceived event handler
+                    _videoDataСhannel = _videoUdpPair._dataPort;     // Used in DataReceived event handler
                     _videoRtcpChannel = _videoUdpPair._controlPort;  // Used in DataReceived event handler
                     rtp_port = _videoUdpPair._dataPort;
                     rtcp_port = _videoUdpPair._controlPort;
@@ -944,7 +961,7 @@ namespace RTSPClient
                 // using Multicast Address and Ports that are in the reply to the SETUP message
                 // Example for MULTICAST mode     Transport: RTP/AVP;multicast
                 if (video) {
-                    _videoВataСhannel = 0; // we get this information in the SETUP message reply
+                    _videoDataСhannel = 0; // we get this information in the SETUP message reply
                     _videoRtcpChannel = 0; // we get this information in the SETUP message reply
                 }
                 if (audio) {
@@ -1127,11 +1144,20 @@ namespace RTSPClient
                 if (transport.IsMulticast)
                 {
                     String multicast_address = transport.Destination;
-                    _videoВataСhannel = transport.Port.First;
+                    _videoDataСhannel = transport.Port.First;
                     _videoRtcpChannel = transport.Port.Second;
 
+                    //free useless UDP
+                    if (_videoUdpPair != null)
+                    {
+                        _videoUdpPair.DataReceived -= Rtp_DataReceived;
+                        _videoUdpPair.ControlReceived -= Rtcp_DataReceived;
+                        _videoUdpPair.Stop();
+                        _videoUdpPair = null;
+                    }
+
                     // Create the Pair of UDP Sockets in Multicast mode
-                    _videoUdpPair = new Rtsp.UDPSocket(multicast_address, _videoВataСhannel, multicast_address, _videoRtcpChannel);
+                    _videoUdpPair = new Rtsp.UDPSocket(multicast_address, _videoDataСhannel, multicast_address, _videoRtcpChannel);
                     _videoUdpPair.DataReceived += Rtp_DataReceived;
                     _videoUdpPair.ControlReceived += Rtcp_DataReceived;
                     _videoUdpPair.Start();
@@ -1143,7 +1169,7 @@ namespace RTSPClient
                 // in the SETUP Reply (Panasonic have a camera that does this)
                 if (transport.LowerTransport == RtspTransport.LowerTransportType.TCP) {
                     if (message.OriginalRequest.RtspUri == _videoUri) {
-                        _videoВataСhannel = transport.Interleaved.First;
+                        _videoDataСhannel = transport.Interleaved.First;
                         _videoRtcpChannel = transport.Interleaved.Second;
                     }
                     if (message.OriginalRequest.RtspUri == _audioUrl) {
